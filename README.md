@@ -168,6 +168,8 @@ If you find this work useful, please consider citing:
 }
 ```
 
+> Note: Everything above the `Lorenz63 Dataset Utilities` section is copied from the forked repository associated with the linked paper.
+
 ## Lorenz63 Dataset Utilities
 
 This repository now also includes a configurable Lorenz63 dataset helper and a small verification script:
