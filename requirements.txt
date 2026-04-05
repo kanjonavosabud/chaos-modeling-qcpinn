@@ -1,0 +1,36 @@
+# Runtime dependencies for QCPINN.
+# The original paper environment is captured in `qcpinn.yaml` and targets Python 3.9.
+# This pip file keeps that legacy stack for older interpreters and uses newer packages
+# when installing into modern Python environments such as Python 3.12.
+#
+# Note: the continuous-variable Strawberry Fields plugin (`pennylane-sf`) is tied to
+# the older PennyLane 0.29 line, so full CV support still requires the legacy Python
+# 3.9-style environment from `qcpinn.yaml`.
+
+torch==2.0.1; python_version < "3.12"
+torch>=2.2,<2.12; python_version >= "3.12"
+
+numpy==1.23.5; python_version < "3.12"
+numpy>=1.26; python_version >= "3.12"
+
+scipy==1.13.1; python_version < "3.12"
+scipy>=1.13; python_version >= "3.12"
+
+matplotlib==3.9.4; python_version < "3.12"
+matplotlib>=3.9; python_version >= "3.12"
+
+seaborn>=0.13
+
+pandas==2.2.3; python_version < "3.12"
+pandas>=2.2; python_version >= "3.12"
+
+h5py==3.13.0; python_version < "3.12"
+h5py>=3.13; python_version >= "3.12"
+
+pennylane==0.29.1; python_version < "3.12"
+pennylane-lightning==0.29.0; python_version < "3.12"
+pennylane-sf==0.29.1; python_version < "3.12"
+strawberryfields==0.23.0; python_version < "3.12"
+
+pennylane>=0.44,<0.45; python_version >= "3.12"
+pennylane-lightning>=0.44,<0.45; python_version >= "3.12"
