@@ -97,7 +97,13 @@ class DVQuantumLayer(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # return torch.stack([self.circuit(sample) for sample in x]) # this line does the same but very slow since it requires running the quantum circuit for each input instance
-        return self.circuit(x)   # vectorized input, no Python loop.. transpose in the main function or here is important
+        out = self.circuit(x)   # vectorized input, no Python loop.. transpose in the main function or here is important
+        # Newer PennyLane releases return a list/tuple of per-wire expvals; older
+        # ones return a stacked tensor. Stack defensively so callers always see
+        # a tensor of shape (num_qubits, batch_size).
+        if isinstance(out, (list, tuple)):
+            out = torch.stack(list(out))
+        return out
 
     def _quantum_circuit(self, x):
         if self.encoding == "amplitude":

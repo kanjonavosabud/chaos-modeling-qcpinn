@@ -116,6 +116,32 @@ def diffusion_operator(
     return u, residual
 
 
+def lorenz63_operator(model, t, sigma=10.0, rho=28.0, beta=8.0 / 3.0):
+    """
+    Operator to compute residuals for the Lorenz63 ODE system.
+
+    Model takes time `t` (shape [N, 1]) and returns the state [x, y, z]
+    (shape [N, 3]). Residuals are du/dt - f(u) for each component.
+    """
+    t.requires_grad_(True)
+    u = model(t)
+
+    x = u[:, 0:1]
+    y = u[:, 1:2]
+    z = u[:, 2:3]
+
+    x_t = torch.autograd.grad(x, t, torch.ones_like(x), create_graph=True)[0]
+    y_t = torch.autograd.grad(y, t, torch.ones_like(y), create_graph=True)[0]
+    z_t = torch.autograd.grad(z, t, torch.ones_like(z), create_graph=True)[0]
+
+    f_x = x_t - sigma * (y - x)
+    f_y = y_t - (x * (rho - z) - y)
+    f_z = z_t - (x * y - beta * z)
+
+    residual = torch.cat((f_x, f_y, f_z), dim=1)
+    return u, residual
+
+
 def helmholtz_operator(
     fluid_model,
     x1,

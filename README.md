@@ -278,13 +278,102 @@ Each run creates a timestamped directory containing:
 - It also configures a safe non-interactive Matplotlib backend and cache directories automatically.
 - Make sure the repository virtual environment contains `torch` and `matplotlib` before running the test script.
 
-### Next Steps
+### Lorenz63 ML Model Layer
 
-These are just working notes for future Lorenz63 integration work:
+The full classical / quantum training stack for Lorenz63 is wired up via:
 
-- Add a `lorenz63_operator(...)` function to `src/nn/pde.py`.
-- Add a dedicated `src/trainer/lorenz63_train.py`.
-- Decide whether Lorenz63 training should use only physics loss plus the initial condition, or also include trajectory supervision points.
-- Add a Lorenz63 training entry point similar to the other `src/trainer/*_hybrid_trainer.py` files.
-- Add a Lorenz63 evaluation or plotting script for trained models, similar to the existing scripts under `src/contour_plots/` or `src/testing/`.
-- Decide how Lorenz63 configuration should be passed around consistently, for example through one shared `args` block.
+- `src/nn/pde.py` — `lorenz63_operator(model, t, sigma, rho, beta)` returns
+  `(u, residual)` where `residual = du/dt - f_lorenz(u)`.
+- `src/trainer/lorenz63_train.py` — training loop combining initial-condition,
+  trajectory-supervision, and physics-residual losses.
+- `src/trainer/lorenz63_hybrid_trainer.py` — CLI entrypoint that builds the
+  selected solver (`Classical`, `DV`, or `CV`), trains, saves a checkpoint, and
+  emits per-run plots.
+- `src/contour_plots/lorenz63_hybrid_plotting.py` — loads one or more trained
+  runs and produces side-by-side comparison plots.
+
+Each `*_hybrid_trainer.py` run writes to
+`models/lorenz63/<solver>/<timestamp>/` and emits:
+
+- `model.pth` — checkpoint with weights, optimizer state, args, loss history
+- `output.log` — training log
+- `loss_history.png` — training loss (log scale)
+- `time_series.png` — model x(t), y(t), z(t) vs RK4 reference
+- `phase_portrait.png` — 3D phase portrait, model vs reference
+- `pointwise_error.png` — per-component prediction error over time
+- `ode_residual.png` — ODE residual on the reference grid
+- `evaluation.npz` — raw `t`, `u_ref`, `u_pred`, `residual` arrays
+
+#### Train an individual model
+
+Classical baseline:
+
+```bash
+venv/bin/python -m src.trainer.lorenz63_hybrid_trainer \
+  --solver Classical --epochs 5000 --batch-size 128 --lr 5e-3 \
+  --t1 2.0 --dt 0.001
+```
+
+DV (discrete-variable) hybrid quantum, angle / cascade:
+
+```bash
+venv/bin/python -m src.trainer.lorenz63_hybrid_trainer \
+  --solver DV --encoding angle --q-ansatz cascade \
+  --num-qubits 5 --epochs 3000 --batch-size 64 --lr 5e-3
+```
+
+DV with amplitude encoding or a different ansatz:
+
+```bash
+venv/bin/python -m src.trainer.lorenz63_hybrid_trainer \
+  --solver DV --encoding amplitude --q-ansatz cross_mesh \
+  --num-qubits 5 --epochs 3000
+```
+
+CV (continuous-variable) hybrid quantum (requires the legacy Python 3.9 env
+from `qcpinn.yaml` since `strawberryfields` / `pennylane-sf` are pinned to
+PennyLane 0.29):
+
+```bash
+python -m src.trainer.lorenz63_hybrid_trainer \
+  --solver CV --cv-class CVNeuralNetwork1 \
+  --num-qubits 4 --cutoff-dim 8 --num-quantum-layers 1 \
+  --epochs 1500 --batch-size 32 --lr 5e-3
+```
+
+All Lorenz63 system parameters are CLI-configurable:
+
+```bash
+venv/bin/python -m src.trainer.lorenz63_hybrid_trainer \
+  --solver Classical \
+  --x0 2.0 --y0 3.0 --z0 4.0 \
+  --sigma 14.0 --rho 35.0 --beta 3.0 \
+  --t0 0.0 --t1 1.5 --dt 0.002 \
+  --w-ic 100 --w-traj 10 --w-res 1
+```
+
+Run `python -m src.trainer.lorenz63_hybrid_trainer --help` for the full flag
+list (loss weights, hidden dim, seed, etc).
+
+#### Compare trained models
+
+After at least one run finishes, point the comparison script at the run
+directory of each model you want overlaid:
+
+```bash
+venv/bin/python -m src.contour_plots.lorenz63_hybrid_plotting \
+  --classical models/lorenz63/classical/<run-id> \
+  --dv        models/lorenz63/dv/<run-id> \
+  --cv        models/lorenz63/cv/<run-id>
+```
+
+Outputs are written to `testing_checkpoints/lorenz63/<timestamp>/`:
+
+- `time_series_compare.png` — x(t), y(t), z(t) for reference + every supplied model
+- `phase_compare.png` — 3D phase portraits overlaid
+- `pointwise_error_compare.png` — per-component error per model
+- `loss_history_compare.png` — loss curves (log scale)
+- `output.log` — relative L2 errors per model
+
+Any subset of `--classical`, `--dv`, `--cv` can be passed; the script renders
+whatever is supplied.
