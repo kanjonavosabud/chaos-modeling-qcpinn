@@ -98,6 +98,62 @@ def build_reference_trajectory(
     return t_ref, u_ref
 
 
+def compute_normalization_stats(
+    device="cpu",
+    initial_state=default_initial_state,
+    sigma=default_sigma,
+    rho=default_rho,
+    beta=default_beta,
+    t0=default_t0,
+    t1=default_t1,
+    dt=default_dt,
+):
+    """
+    Build the RK4 reference trajectory and return normalization statistics:
+      - t0, t_span: linear scaling for time into [0, 1]
+      - u_mean, u_std: per-component standardization for state (shape [3])
+    """
+    _, u_ref = build_reference_trajectory(
+        device=device,
+        initial_state=initial_state,
+        sigma=sigma,
+        rho=rho,
+        beta=beta,
+        t0=t0,
+        t1=t1,
+        dt=dt,
+    )
+    eps = 1e-8
+    u_std = u_ref.std(dim=0)
+    u_std = torch.clamp(u_std, min=eps)
+    return {
+        "t0": torch.tensor(float(t0), dtype=torch.float32, device=device),
+        "t_span": torch.tensor(float(t1 - t0), dtype=torch.float32, device=device),
+        "u_mean": u_ref.mean(dim=0).detach(),
+        "u_std": u_std.detach(),
+    }
+
+
+def stats_to_serializable(stats):
+    """Convert stats tensors to plain floats/lists for checkpoint storage."""
+    return {
+        "t0": float(stats["t0"]),
+        "t_span": float(stats["t_span"]),
+        "u_mean": stats["u_mean"].detach().cpu().tolist(),
+        "u_std": stats["u_std"].detach().cpu().tolist(),
+    }
+
+
+def stats_from_serializable(d, device="cpu"):
+    """Rebuild stats tensors from a serialized dict."""
+    return {
+        "t0": torch.tensor(float(d["t0"]), dtype=torch.float32, device=device),
+        "t_span": torch.tensor(float(d["t_span"]), dtype=torch.float32, device=device),
+        "u_mean": torch.tensor(d["u_mean"], dtype=torch.float32, device=device),
+        "u_std": torch.tensor(d["u_std"], dtype=torch.float32, device=device),
+    }
+
+
 def interpolate_reference_solution(t, t_ref, u_ref):
     t_flat = t.squeeze(-1)
     ref_flat = t_ref.squeeze(-1)

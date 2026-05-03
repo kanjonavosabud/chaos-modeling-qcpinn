@@ -8,6 +8,7 @@ import torch
 import src.trainer.lorenz63_train as lorenz63_train
 from src.data.lorenz63_dataset import (
     build_reference_trajectory,
+    compute_normalization_stats,
     default_beta,
     default_dt,
     default_initial_state,
@@ -15,6 +16,8 @@ from src.data.lorenz63_dataset import (
     default_sigma,
     default_t0,
     default_t1,
+    stats_from_serializable,
+    stats_to_serializable,
 )
 from src.nn.ClassicalSolver import ClassicalSolver
 from src.nn.CVPDESolver import CVPDESolver
@@ -76,6 +79,11 @@ def parse_args():
     parser.add_argument("--w-ic", type=float, default=100.0)
     parser.add_argument("--w-traj", type=float, default=10.0)
     parser.add_argument("--w-res", type=float, default=1.0)
+    parser.add_argument(
+        "--no-normalize",
+        action="store_true",
+        help="Disable input/output normalization (train in physical units).",
+    )
     parser.add_argument(
         "--log-path",
         default=os.path.join("models", "lorenz63"),
@@ -141,7 +149,7 @@ def build_model(args, logger):
     return model
 
 
-def evaluate_and_plot(model, args, logger, output_dir):
+def evaluate_and_plot(model, args, logger, output_dir, stats=None):
     cfg = args["lorenz63"]
 
     t_ref, u_ref = build_reference_trajectory(
@@ -161,6 +169,7 @@ def evaluate_and_plot(model, args, logger, output_dir):
         sigma=torch.tensor(cfg["sigma"], device=DEVICE),
         rho=torch.tensor(cfg["rho"], device=DEVICE),
         beta=torch.tensor(cfg["beta"], device=DEVICE),
+        stats=stats,
     )
 
     t_np = t_ref.detach().cpu().numpy().squeeze()
@@ -297,6 +306,33 @@ def main():
     logger.print(f"Total number of parameters: {total_params}")
 
     cfg = args["lorenz63"]
+    normalize = not cli.no_normalize
+    stats = None
+    if normalize:
+        stats = compute_normalization_stats(
+            device=DEVICE,
+            initial_state=cfg["initial_state"],
+            sigma=cfg["sigma"],
+            rho=cfg["rho"],
+            beta=cfg["beta"],
+            t0=cfg["t0"],
+            t1=cfg["t1"],
+            dt=cfg["dt"],
+        )
+        # Persist stats into args so the checkpoint round-trips them.
+        model.args["lorenz63_stats"] = stats_to_serializable(stats)
+        logger.print(
+            "Normalization stats: u_mean=%s, u_std=%s, t0=%.4f, t_span=%.4f"
+            % (
+                stats["u_mean"].cpu().tolist(),
+                stats["u_std"].cpu().tolist(),
+                float(stats["t0"]),
+                float(stats["t_span"]),
+            )
+        )
+    else:
+        logger.print("Normalization DISABLED (training in physical units).")
+
     lorenz63_train.train(
         model,
         initial_state=cfg["initial_state"],
@@ -307,12 +343,14 @@ def main():
         t1=cfg["t1"],
         dt=cfg["dt"],
         batch_size=cli.batch_size,
+        normalize=normalize,
+        stats=stats,
     )
 
     model.save_state()
     logger.print("Training completed successfully.")
 
-    evaluate_and_plot(model, args, logger, output_dir)
+    evaluate_and_plot(model, args, logger, output_dir, stats=stats)
     logger.print(f"All artifacts saved under: {output_dir}")
 
 

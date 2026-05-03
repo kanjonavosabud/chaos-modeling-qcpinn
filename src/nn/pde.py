@@ -116,15 +116,28 @@ def diffusion_operator(
     return u, residual
 
 
-def lorenz63_operator(model, t, sigma=10.0, rho=28.0, beta=8.0 / 3.0):
+def lorenz63_operator(model, t, sigma=10.0, rho=28.0, beta=8.0 / 3.0, stats=None):
     """
     Operator to compute residuals for the Lorenz63 ODE system.
 
-    Model takes time `t` (shape [N, 1]) and returns the state [x, y, z]
-    (shape [N, 3]). Residuals are du/dt - f(u) for each component.
+    `t` is always passed in physical units. Returns `(u_phys, residual_phys)`
+    in physical units regardless of whether normalization is enabled.
+
+    If `stats` is None: model takes physical `t` and outputs physical `u`.
+
+    If `stats` is a dict with keys {t0, t_span, u_mean, u_std}: model takes
+    `t_norm = (t - t0)/t_span` and outputs `u_norm`. The operator wraps the
+    model so it still sees physical `t` going in and physical `u` coming out;
+    autograd handles the chain rule across the linear normalization layers.
     """
     t.requires_grad_(True)
-    u = model(t)
+
+    if stats is None:
+        u = model(t)
+    else:
+        t_norm = (t - stats["t0"]) / stats["t_span"]
+        u_norm = model(t_norm)
+        u = u_norm * stats["u_std"] + stats["u_mean"]
 
     x = u[:, 0:1]
     y = u[:, 1:2]

@@ -18,7 +18,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
-from src.data.lorenz63_dataset import build_reference_trajectory
+from src.data.lorenz63_dataset import (
+    build_reference_trajectory,
+    stats_from_serializable,
+)
 from src.nn.ClassicalSolver import ClassicalSolver
 from src.nn.CVPDESolver import CVPDESolver
 from src.nn.DVPDESolver import DVPDESolver
@@ -71,8 +74,10 @@ def predict(model, state, t_ref):
     sigma = torch.tensor(cfg["sigma"], device=DEVICE)
     rho = torch.tensor(cfg["rho"], device=DEVICE)
     beta = torch.tensor(cfg["beta"], device=DEVICE)
+    stats_dict = state["args"].get("lorenz63_stats")
+    stats = stats_from_serializable(stats_dict, device=DEVICE) if stats_dict else None
     u_pred, residual = lorenz63_operator(
-        model, t_ref.clone(), sigma=sigma, rho=rho, beta=beta
+        model, t_ref.clone(), sigma=sigma, rho=rho, beta=beta, stats=stats
     )
     return u_pred.detach().cpu().numpy(), residual.detach().cpu().numpy()
 
