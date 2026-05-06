@@ -368,6 +368,45 @@ venv/bin/python -m src.trainer.lorenz63_hybrid_trainer \
   --curriculum --curriculum-t1 0.2,0.5,1.0,1.5,2.0
 ```
 
+Fourier feature time encoding (helps fit oscillatory/chaotic trajectories):
+
+```bash
+venv/bin/python -m src.trainer.lorenz63_hybrid_trainer \
+  --solver Classical --epochs 300 --batch-size 128 --lr 5e-3 \
+  --curriculum --curriculum-t1 0.2,0.5,1.0,1.5,2.0 \
+  --fourier-features --fourier-num-bands 4
+```
+
+Adaptive loss weighting (gradient-norm balancing):
+
+```bash
+venv/bin/python -m src.trainer.lorenz63_hybrid_trainer \
+  --solver Classical --epochs 300 --batch-size 128 --lr 5e-3 \
+  --curriculum --curriculum-t1 0.2,0.5,1.0,1.5,2.0 \
+  --fourier-features --fourier-num-bands 4 \
+  --adaptive-loss gradnorm
+```
+
+DV data re-uploading (re-embeds input between variational layers; meaningful when
+`--num-quantum-layers > 1`):
+
+```bash
+venv/bin/python -m src.trainer.lorenz63_hybrid_trainer \
+  --solver DV --encoding angle --q-ansatz cascade \
+  --num-qubits 5 --num-quantum-layers 3 \
+  --epochs 300 --batch-size 64 --lr 5e-3 \
+  --curriculum --curriculum-t1 0.2,0.5,1.0,1.5,2.0 \
+  --fourier-features --fourier-num-bands 4 \
+  --adaptive-loss gradnorm --dv-reupload
+```
+
+Quantum circuit drawing is disabled by default for stability in headless
+environments. To emit `circuit.pdf`, add:
+
+```bash
+--draw-circuit
+```
+
 #### Compare trained models
 
 After at least one run finishes, point the comparison script at the run
