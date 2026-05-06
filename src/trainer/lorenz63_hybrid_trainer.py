@@ -1,6 +1,23 @@
 import argparse
 import os
+import tempfile
 
+_CACHE_ROOT = os.path.join(
+    os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")),
+    ".cache",
+)
+try:
+    os.makedirs(_CACHE_ROOT, exist_ok=True)
+    os.makedirs(os.path.join(_CACHE_ROOT, "matplotlib"), exist_ok=True)
+except OSError:
+    _CACHE_ROOT = tempfile.gettempdir()
+
+os.environ.setdefault("XDG_CACHE_HOME", _CACHE_ROOT)
+os.environ.setdefault("MPLCONFIGDIR", os.path.join(_CACHE_ROOT, "matplotlib"))
+os.environ.setdefault("MPLBACKEND", "Agg")
+
+import matplotlib
+matplotlib.use("Agg", force=True)
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -65,6 +82,11 @@ def parse_args():
     parser.add_argument("--cutoff-dim", type=int, default=8)
     parser.add_argument("--print-every", type=int, default=50)
     parser.add_argument("--seed", type=int, default=1)
+    parser.add_argument(
+        "--draw-circuit",
+        action="store_true",
+        help="Draw and save the quantum circuit diagram (disabled by default for stability).",
+    )
 
     parser.add_argument("--x0", type=float, default=default_initial_state[0])
     parser.add_argument("--y0", type=float, default=default_initial_state[1])
@@ -297,6 +319,11 @@ def main():
     output_dir = logger.get_output_dir()
 
     model = build_model(args, logger)
+    if hasattr(model, "draw_quantum_circuit_flag"):
+        model.draw_quantum_circuit_flag = bool(cli.draw_circuit)
+        logger.print(
+            f"Quantum circuit drawing {'ENABLED' if cli.draw_circuit else 'DISABLED'}."
+        )
 
     logger.print("The settings used:")
     for key, value in args.items():
