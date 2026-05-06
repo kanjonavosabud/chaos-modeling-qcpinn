@@ -87,6 +87,20 @@ def parse_args():
         action="store_true",
         help="Draw and save the quantum circuit diagram (disabled by default for stability).",
     )
+    parser.add_argument(
+        "--curriculum",
+        action="store_true",
+        help="Enable time-window curriculum training with staged t1 values.",
+    )
+    parser.add_argument(
+        "--curriculum-t1",
+        type=str,
+        default="0.2,0.5,1.0,1.5,2.0",
+        help=(
+            "Comma-separated list of t1 stage endpoints used when --curriculum is set. "
+            "Example: 0.2,0.5,1.0,1.5,2.0"
+        ),
+    )
 
     parser.add_argument("--x0", type=float, default=default_initial_state[0])
     parser.add_argument("--y0", type=float, default=default_initial_state[1])
@@ -154,6 +168,27 @@ def build_args_dict(cli):
             "dt": cli.dt,
         },
     }
+
+
+def parse_curriculum_t1_list(raw_value, t0):
+    values = []
+    for chunk in raw_value.split(","):
+        item = chunk.strip()
+        if not item:
+            continue
+        try:
+            value = float(item)
+        except ValueError as exc:
+            raise ValueError(f"Invalid curriculum t1 value '{item}'") from exc
+        if value <= t0:
+            raise ValueError(
+                f"Curriculum t1 value {value} must be greater than t0 ({t0})."
+            )
+        values.append(value)
+    if not values:
+        raise ValueError("Curriculum t1 list is empty.")
+    # Keep unique values in ascending order to ensure monotonic window growth.
+    return sorted(set(values))
 
 
 def build_model(args, logger):
@@ -334,10 +369,54 @@ def main():
 
     cfg = args["lorenz63"]
     normalize = not cli.no_normalize
-    stats = None
     if normalize:
-        stats = compute_normalization_stats(
-            device=DEVICE,
+        logger.print("Normalization ENABLED.")
+    else:
+        logger.print("Normalization DISABLED (training in physical units).")
+
+    if cli.curriculum:
+        stage_t1_values = parse_curriculum_t1_list(cli.curriculum_t1, cfg["t0"])
+        logger.print(
+            f"Curriculum ENABLED with stage t1 values: {stage_t1_values}"
+        )
+    else:
+        stage_t1_values = [cfg["t1"]]
+        logger.print("Curriculum DISABLED (single-stage training).")
+
+    stats = None
+    for stage_idx, stage_t1 in enumerate(stage_t1_values, start=1):
+        cfg["t1"] = stage_t1
+        logger.print(
+            f"Starting stage {stage_idx}/{len(stage_t1_values)} with t in [{cfg['t0']}, {cfg['t1']}]"
+        )
+        if normalize:
+            stats = compute_normalization_stats(
+                device=DEVICE,
+                initial_state=cfg["initial_state"],
+                sigma=cfg["sigma"],
+                rho=cfg["rho"],
+                beta=cfg["beta"],
+                t0=cfg["t0"],
+                t1=cfg["t1"],
+                dt=cfg["dt"],
+            )
+            # Persist stats into args so checkpoints round-trip stage-specific stats.
+            model.args["lorenz63_stats"] = stats_to_serializable(stats)
+            logger.print(
+                "Stage %d normalization stats: u_mean=%s, u_std=%s, t0=%.4f, t_span=%.4f"
+                % (
+                    stage_idx,
+                    stats["u_mean"].cpu().tolist(),
+                    stats["u_std"].cpu().tolist(),
+                    float(stats["t0"]),
+                    float(stats["t_span"]),
+                )
+            )
+        else:
+            stats = None
+
+        lorenz63_train.train(
+            model,
             initial_state=cfg["initial_state"],
             sigma=cfg["sigma"],
             rho=cfg["rho"],
@@ -345,34 +424,11 @@ def main():
             t0=cfg["t0"],
             t1=cfg["t1"],
             dt=cfg["dt"],
+            batch_size=cli.batch_size,
+            normalize=normalize,
+            stats=stats,
         )
-        # Persist stats into args so the checkpoint round-trips them.
-        model.args["lorenz63_stats"] = stats_to_serializable(stats)
-        logger.print(
-            "Normalization stats: u_mean=%s, u_std=%s, t0=%.4f, t_span=%.4f"
-            % (
-                stats["u_mean"].cpu().tolist(),
-                stats["u_std"].cpu().tolist(),
-                float(stats["t0"]),
-                float(stats["t_span"]),
-            )
-        )
-    else:
-        logger.print("Normalization DISABLED (training in physical units).")
-
-    lorenz63_train.train(
-        model,
-        initial_state=cfg["initial_state"],
-        sigma=cfg["sigma"],
-        rho=cfg["rho"],
-        beta=cfg["beta"],
-        t0=cfg["t0"],
-        t1=cfg["t1"],
-        dt=cfg["dt"],
-        batch_size=cli.batch_size,
-        normalize=normalize,
-        stats=stats,
-    )
+        logger.print(f"Completed stage {stage_idx}/{len(stage_t1_values)}.")
 
     model.save_state()
     logger.print("Training completed successfully.")

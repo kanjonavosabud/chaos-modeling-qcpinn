@@ -360,6 +360,14 @@ By default, Lorenz63 training uses normalization:
 - state targets are standardized per component using RK4 reference trajectory
 Use `--no-normalize` to disable this and train in physical units.
 
+Curriculum (warm-restart across growing time windows):
+
+```bash
+venv/bin/python -m src.trainer.lorenz63_hybrid_trainer \
+  --solver Classical --epochs 200 --batch-size 128 --lr 5e-3 \
+  --curriculum --curriculum-t1 0.2,0.5,1.0,1.5,2.0
+```
+
 #### Compare trained models
 
 After at least one run finishes, point the comparison script at the run
