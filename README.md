@@ -355,6 +355,11 @@ venv/bin/python -m src.trainer.lorenz63_hybrid_trainer \
 Run `python -m src.trainer.lorenz63_hybrid_trainer --help` for the full flag
 list (loss weights, hidden dim, seed, etc).
 
+By default, Lorenz63 training uses normalization:
+- time is linearly scaled from `[t0, t1]` to `[0, 1]`
+- state targets are standardized per component using RK4 reference trajectory
+Use `--no-normalize` to disable this and train in physical units.
+
 #### Compare trained models
 
 After at least one run finishes, point the comparison script at the run
