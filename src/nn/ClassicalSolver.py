@@ -3,6 +3,7 @@ import torch.nn as nn
 import os
 
 from src.utils.logger import Logging
+from src.nn.FourierFeatures import FourierFeatures
 
 
 class ClassicalSolver(nn.Module):
@@ -19,11 +20,23 @@ class ClassicalSolver(nn.Module):
         self.scheduler = None
         self.loss_history = []
         self.encoding = self.args.get("encoding", "angle")
+        self.use_fourier_features = bool(self.args.get("fourier_features", False))
+        self.fourier_num_bands = int(self.args.get("fourier_num_bands", 4))
         self.draw_quantum_circuit_flag = True
         self.classic_network = self.args["classic_network"]  # [3, 50, 50, 50 , 4] #
+        self.feature_map = None
+
+        preprocessor_input_dim = self.classic_network[0]
+        if self.use_fourier_features:
+            self.feature_map = FourierFeatures(
+                input_dim=self.classic_network[0],
+                num_bands=self.fourier_num_bands,
+                include_input=True,
+            ).to(self.device)
+            preprocessor_input_dim = self.feature_map.output_dim
 
         self.preprocessor = nn.Sequential(
-            nn.Linear(self.classic_network[0], self.classic_network[-2]).to(
+            nn.Linear(preprocessor_input_dim, self.classic_network[-2]).to(
                 self.device
             ),
         ).to(self.device)
@@ -69,6 +82,8 @@ class ClassicalSolver(nn.Module):
         try:
             if x.dim() != 2:
                 raise ValueError(f"Expected 2D input tensor, got shape {x.shape}")
+            if self.feature_map is not None:
+                x = self.feature_map(x)
             # Combine inputs
             # Classical preprocessing
             preprocessed = self.preprocessor(x)

@@ -83,6 +83,28 @@ def parse_args():
     parser.add_argument("--print-every", type=int, default=50)
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument(
+        "--fourier-features",
+        action="store_true",
+        help="Enable Fourier feature expansion on model inputs (Classical and DV).",
+    )
+    parser.add_argument(
+        "--fourier-num-bands",
+        type=int,
+        default=4,
+        help="Number of power-of-two Fourier bands when --fourier-features is enabled.",
+    )
+    parser.add_argument(
+        "--adaptive-loss",
+        choices=["none", "gradnorm"],
+        default="none",
+        help="Adaptive loss weighting mode for (IC, trajectory, residual) losses.",
+    )
+    parser.add_argument(
+        "--dv-reupload",
+        action="store_true",
+        help="Enable data re-uploading in DV quantum layers (re-embed between variational layers).",
+    )
+    parser.add_argument(
         "--draw-circuit",
         action="store_true",
         help="Draw and save the quantum circuit diagram (disabled by default for stability).",
@@ -155,6 +177,10 @@ def build_args_dict(cli):
         "cutoff_dim": cli.cutoff_dim,
         "class": cli.cv_class,
         "encoding": cli.encoding,
+        "fourier_features": cli.fourier_features,
+        "fourier_num_bands": cli.fourier_num_bands,
+        "adaptive_loss": cli.adaptive_loss,
+        "dv_reupload": cli.dv_reupload,
         "w_ic": cli.w_ic,
         "w_traj": cli.w_traj,
         "w_res": cli.w_res,

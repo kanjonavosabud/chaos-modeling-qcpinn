@@ -72,6 +72,7 @@ def train(
     w_ic = model.args.get("w_ic", 100.0)
     w_traj = model.args.get("w_traj", 10.0)
     w_res = model.args.get("w_res", 1.0)
+    adaptive_loss = model.args.get("adaptive_loss", "none")
 
     if stats is not None:
         # Per-component natural scale of du/dt: state std divided by time span.
@@ -116,19 +117,53 @@ def train(
         loss_traj = model.loss_fn(u_traj_pred, u_traj_target)
         loss_res = model.loss_fn(residual_for_loss, torch.zeros_like(residual_for_loss))
 
-        loss = w_ic * loss_ics + w_traj * loss_traj + w_res * loss_res
+        eff_w_ic, eff_w_traj, eff_w_res = w_ic, w_traj, w_res
+        if adaptive_loss == "gradnorm":
+            params = [p for p in model.parameters() if p.requires_grad]
+
+            def grad_norm(loss_term):
+                grads = torch.autograd.grad(
+                    loss_term,
+                    params,
+                    retain_graph=True,
+                    create_graph=False,
+                    allow_unused=True,
+                )
+                pieces = [g.reshape(-1) for g in grads if g is not None]
+                if not pieces:
+                    return torch.tensor(0.0, device=model.device)
+                vec = torch.cat(pieces)
+                return torch.norm(vec, p=2)
+
+            g_ic = grad_norm(loss_ics)
+            g_traj = grad_norm(loss_traj)
+            g_res = grad_norm(loss_res)
+            g_stack = torch.stack([g_ic, g_traj, g_res])
+            g_mean = torch.mean(g_stack)
+            eps = 1e-12
+            # Inverse-gradient scaling: smaller gradients are upweighted.
+            dyn = g_mean / torch.clamp(g_stack, min=eps)
+            dyn = dyn / torch.clamp(torch.mean(dyn), min=eps)
+            eff_w_ic = w_ic * float(dyn[0].detach())
+            eff_w_traj = w_traj * float(dyn[1].detach())
+            eff_w_res = w_res * float(dyn[2].detach())
+
+        loss = eff_w_ic * loss_ics + eff_w_traj * loss_traj + eff_w_res * loss_res
 
         elapsed = time.time() - start_time
 
         if it % model.args["print_every"] == 0:
             model.logger.print(
-                "It: %d, Loss: %.3e, Loss_ics: %.3e, Loss_traj: %.3e, Loss_res: %.3e, lr: %.3e, Time: %.2e"
+                "It: %d, Loss: %.3e, Loss_ics: %.3e, Loss_traj: %.3e, Loss_res: %.3e, w=(%.2f,%.2f,%.2f), lr: %.3e, Time: %.2e"
                 % (
                     it,
                     loss.item(),
                     loss_ics.item(),
                     loss_traj.item(),
                     loss_res.item(),
+                    eff_w_ic,
+                    eff_w_traj,
+                    eff_w_res,
                     model.optimizer.param_groups[0]["lr"] if model.optimizer else 0.0,
                     elapsed,
                 )

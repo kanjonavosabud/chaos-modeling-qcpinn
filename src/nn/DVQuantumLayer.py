@@ -22,6 +22,7 @@ class DVQuantumLayer(nn.Module):
         self.q_ansatz = args["q_ansatz"]
         self.problem = args["problem"]
         self.encoding = args.get("encoding", "angle")
+        self.reupload = bool(args.get("dv_reupload", False))
 
         if self.q_ansatz == "layered":
             self.params = nn.Parameter(
@@ -106,34 +107,37 @@ class DVQuantumLayer(nn.Module):
         return out
 
     def _quantum_circuit(self, x):
-        if self.encoding == "amplitude":
-            qml.templates.AmplitudeEmbedding(
-                x, wires=range(self.num_qubits), normalize=True, pad_with=0.0
-            )
-        else:
-            qml.templates.AngleEmbedding(x, wires=range(self.num_qubits), rotation="X")
+        def embed_inputs():
+            if self.encoding == "amplitude":
+                qml.templates.AmplitudeEmbedding(
+                    x, wires=range(self.num_qubits), normalize=True, pad_with=0.0
+                )
+            else:
+                qml.templates.AngleEmbedding(
+                    x, wires=range(self.num_qubits), rotation="X"
+                )
 
-        if self.q_ansatz == "layered":
-            for layer in range(self.num_quantum_layers):
-                self.layered(self.params[layer])
+        def apply_ansatz_layer(layer_idx):
+            if self.q_ansatz == "layered":
+                self.layered(self.params[layer_idx])
+            elif self.q_ansatz == "alternate":
+                self.alternate(self.params[layer_idx])
+            elif self.q_ansatz == "cascade":
+                self.cascade(self.params[layer_idx])
+            elif self.q_ansatz == "farhi":
+                self.farhi_ansatz(self.params[layer_idx])
+            elif self.q_ansatz == "sim_circ_15":
+                self.create_sim_circuit_15(self.params[layer_idx])
+            elif self.q_ansatz == "cross_mesh":
+                self.create_cross_mesh(self.params[layer_idx])
+            else:
+                raise ValueError("Invalid q_ansatz value.", self.q_ansatz)
 
-        elif self.q_ansatz == "alternate":
-            for layer in range(self.num_quantum_layers):
-                self.alternate(self.params[layer])
-        elif self.q_ansatz == "cascade":
-            for layer in range(self.num_quantum_layers):
-                self.cascade(self.params[layer])
-        elif self.q_ansatz == "farhi":
-            for layer in range(self.num_quantum_layers):
-                self.farhi_ansatz(self.params[layer])
-
-        elif self.q_ansatz == "sim_circ_15":
-            for layer in range(self.num_quantum_layers):
-                self.create_sim_circuit_15(self.params[layer])
-
-        elif self.q_ansatz == "cross_mesh":
-            for layer in range(self.num_quantum_layers):
-                self.create_cross_mesh(self.params[layer])
+        embed_inputs()
+        for layer in range(self.num_quantum_layers):
+            apply_ansatz_layer(layer)
+            if self.reupload and layer < (self.num_quantum_layers - 1):
+                embed_inputs()
 
         return [qml.expval(qml.PauliZ(i)) for i in range(self.num_qubits)]
 
